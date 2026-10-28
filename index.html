@@ -1,4 +1,10 @@
-<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+</head>
+<body>
 <title>Shadowbox Builder</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -26,7 +32,7 @@
   --view: #0f1418; --grid: rgba(126,162,255,.08); color-scheme: dark }
 * { box-sizing: border-box }
 [hidden] { display: none !important }
-body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 14px; line-height: 1.45 }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 14px; line-height: 1.45 }
 .wrap { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 14px 28px; max-width: 1500px; margin: 0 auto }
 header.top { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px 24px; padding-bottom: 14px; border-bottom: 1.5px solid var(--ink); margin-bottom: 16px }
 h1 { font-family: var(--f-display); font-stretch: 78%; font-weight: 800; font-size: 30px; letter-spacing: .01em; margin: 0; line-height: 1; text-transform: uppercase }
@@ -869,14 +875,14 @@ const DEFAULTS = {
   units: 'in', W: 203.2, H: 228.6, D: 76.2, tf: 4.7625, ts: 3.175, sd: 2.38125, clr: 0.127,
   frameMode: 'panels', back: 'groove', bt: 3.175, bInset: 0, stopped: false, setback: 6,
   layout: 'varied', rows: 3, cols: 3, joinery: 'egg', varRows: SKETCH_ROWS,
-  kerf: 0.1016, sheetW: 457.2, sheetH: 304.8, gap: 3.175, laserFrame: false, sheetLayout: null,
+  kerf: 0.1016, sheetW: 609.6, sheetH: 304.8, gap: 3.175, laserFrame: false, sheetLayout: null,
 };
 const LS_KEY = 'shadowbox-builder-v1';
 let P = JSON.parse(JSON.stringify(DEFAULTS));
 const STATE_KEY = 'shadowbox-builder-v2';
 try {
   const s = localStorage.getItem(STATE_KEY);
-  if (s) P = { ...P, ...JSON.parse(s) };
+  if (s) { P = { ...P, ...JSON.parse(s) }; if (Math.abs(P.sheetW - 457.2) < 1e-6 && Math.abs(P.sheetH - 304.8) < 1e-6) P.sheetW = 609.6; }
   else { // first open after the defaults changed: keep the old design but start in inches with wood panels
     const old = localStorage.getItem(LS_KEY);
     if (old) {
@@ -912,8 +918,11 @@ function backOptions() {
   sel.innerHTML = opts.map(([v, t]) => `<option value="${v}">${t}</option>`).join('');
   sel.value = P.back;
 }
+// arrow-key / spinner steps per field: [inches, mm]
+const STEPS = { W: [0.125, 1], H: [0.125, 1], D: [0.125, 1], tf: [0.0625, 0.1], ts: [0.0625, 0.1], bt: [0.0625, 0.1], sd: [0.0625, 0.1],
+  bInset: [0.0625, 0.5], setback: [0.0625, 0.5], clr: [0.001, 0.01], kerf: [0.001, 0.01], gap: [0.0625, 0.5], sheetW: [0.5, 5], sheetH: [0.5, 5] };
 function writeForm() {
-  LEN_KEYS.forEach(k => { $(k).value = +toU(P[k]).toFixed(P.units === 'in' ? 4 : 3); });
+  LEN_KEYS.forEach(k => { $(k).value = +toU(P[k]).toFixed(P.units === 'in' ? 4 : 3); $(k).step = STEPS[k] ? STEPS[k][P.units === 'in' ? 0 : 1] : 'any'; });
   document.querySelectorAll('[data-len]').forEach(inp => {
     const lab = inp.parentElement; let u = lab.querySelector('.unit');
     if (!u) { u = document.createElement('span'); u.className = 'unit'; const t = lab.firstChild, w = document.createElement('span'); w.textContent = t.textContent.trim(); t.replaceWith(w); w.append(u); }
@@ -1288,7 +1297,16 @@ let DL = null;
   try { if (window.claude && window.claude.use) DL = await window.claude.use('downloads'); } catch (e) { DL = null; }
 })();
 async function save(filename, data) {
-  if (!DL) { toast('Downloads are not available in this view. Open the page on claude.ai to save files.'); return; }
+  if (!DL) {
+    if (window.claude) { toast('Downloads are not available in this view. Open the page on claude.ai to save files.'); return; }
+    // Running as a normal web page (e.g. GitHub Pages): a regular browser download
+    const types = { zip: 'application/zip', csv: 'text/csv', json: 'application/json', svg: 'image/svg+xml' };
+    const blob = data instanceof Blob ? data : new Blob([data], { type: types[filename.split('.').pop()] || 'application/octet-stream' });
+    const url = URL.createObjectURL(blob), a = document.createElement('a');
+    a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    toast('Downloaded ' + filename); return;
+  }
   try { await DL.save({ filename, data }); toast('Saved ' + filename); }
   catch (e) {
     if (e && e.code === 'declined') toast('Download cancelled');
@@ -1296,7 +1314,7 @@ async function save(filename, data) {
     else toast('Could not save the file' + (e && e.message ? ': ' + e.message : ''));
   }
 }
-const stamp = () => `shadowbox-${Math.round(P.W)}x${Math.round(P.H)}x${Math.round(P.D)}`;
+const stamp = () => `shadowbox-${[P.W, P.H, P.D].map(v => fmt(v, 2, 0)).join('x')}${P.units === 'in' ? 'in' : 'mm'}`;
 $('dl-all').onclick = () => save(stamp() + '.zip', zipStore([...laserFiles(), ...modelFiles(),
   { name: 'cut-list.csv', data: csvText() }, { name: 'front-elevation.svg', data: frontSVG(MODEL, PRINTPAL) }, { name: 'design.json', data: designJSON() }]));
 $('dl-laser').onclick = () => save(stamp() + '-laser.zip', zipStore(laserFiles()));
@@ -2011,4 +2029,5 @@ if (window.SB_MODEL) update(window.SB_MODEL);
 
 </script>
 
-</body></html>
+</body>
+</html>
